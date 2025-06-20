@@ -24,31 +24,30 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-        // 1.获取请求头中的token
+        // 1. Get Token from request header
         String token = request.getHeader("Authorization");
         if (StrUtil.isBlank(token)) {
             return true;
         }
-        // 2.基于TOKEN获取redis中的用户
+        // 2.Get redis user from token
         String key  = LOGIN_USER_KEY + token;
         Map<Object, Object> userMap = stringRedisTemplate.opsForHash().entries(key);
-        // 3.判断用户是否存在
+        // 3.Check if user exist
         if (userMap.isEmpty()) {
             return true;
         }
-        // 5.将查询到的hash数据转为UserDTO
+        // 5. Convert Hash map from redis to User DTO
         UserDTO userDTO = BeanUtil.fillBeanWithMap(userMap, new UserDTO(), false);
-        // 6.存在，保存用户信息到 ThreadLocal
+        // 6.Save user info to thread local
         UserHolder.saveUser(userDTO);
-        // 7.刷新token有效期
+        // 7.Update token expire date
         stringRedisTemplate.expire(key, LOGIN_USER_TTL, TimeUnit.MINUTES);
-        // 8.放行
         return true;
     }
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
-        // 移除用户
+        // Remove user
         UserHolder.removeUser();
     }
 }
