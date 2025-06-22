@@ -8,8 +8,12 @@ import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisWorker;
+import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +29,13 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Resource
     private RedisWorker redisWorker;
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
+
+    @Resource
+    private RedissonClient redissonClient;
 
 
     @Override
@@ -54,11 +65,43 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         // This part only work on one system if have multiple system will then fail
         // use intern to ensure that the value even after toString is always same
         // use Pessimistic lock (悲观锁) here
-        synchronized (userId.toString().intern()){
-            // get transactional object
+//        synchronized (userId.toString().intern()){
+//            // get transactional object
+//            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+//            return proxy.createVoucherOrder(voucherId);
+//        }
+
+
+
+
+        // Distributed lock
+        // doing this ensure that even 2 JVM machine running at the same time can prevent them to placed the same order with same user ID
+        // Build lock
+        //SimpleRedisLock lock = new SimpleRedisLock("order:" + userId, stringRedisTemplate);
+        RLock lock = redissonClient.getLock("lock:order:" + userId);
+
+        // Get lock
+        boolean isLock = lock.tryLock();
+
+        // check if get lock success
+        if(!isLock){
+            // get lock fail, return error
+            return Result.fail("Only one order per user");
+        }
+
+        try {
+            // Get transactional target
+
             IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
             return proxy.createVoucherOrder(voucherId);
+        } catch (IllegalStateException e) {
+            throw new RuntimeException(e);
         }
+        finally {
+            // unlock
+            lock.unlock();
+        }
+
     }
 
 
