@@ -76,4 +76,12 @@ public class UserController {
         // 返回
         return Result.ok(info);
     }
+
+
+    @GetMapping("/mock-login")
+    public Result mockLogin(HttpSession session) {
+        User user = userService.getById(4L);
+        session.setAttribute("user", user);
+        return Result.ok(user);
+    }
 }
