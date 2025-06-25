@@ -26,6 +26,7 @@ public class MvcConfig implements WebMvcConfigurer {
                         "/voucher-order/**",
                         "/shop-type/**",
                         "/upload/**",
+                        "/follow/**",
 //                        "/blog/hot",
                         "/blog/**", // temp set to allow all path for testing
                         "/user/code",
