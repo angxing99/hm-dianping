@@ -78,36 +78,39 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         public void run(){
             while(true){
                 try {
-                    // get voucher info from message queue XREADGROUP GROUP g1 c1 COUNT 1 BLOCK 2000 STREAMS streams.order
+                    // Process pending list first
+                    handlePendingList();
+
+                    // Read new messages with blocking read
                     List<MapRecord<String, Object, Object>> list = stringRedisTemplate.opsForStream().read(
                             Consumer.from("g1", "c1"),
                             StreamReadOptions.empty().count(1).block(Duration.ofSeconds(2)),
                             StreamOffset.create(queueName, ReadOffset.lastConsumed())
-
                     );
 
-                    // check if get message success
                     if(list == null || list.isEmpty()){
-                        // if fail, keep loop
                         continue;
                     }
 
-                    // retrieve order record from list
-                    MapRecord<String, Object, Object> record = list.get(0);
-                    Map<Object, Object> values = record.getValue();
-                    VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(values, new VoucherOrder(), true);
+                    // Process each message
+                    for (MapRecord<String, Object, Object> record : list) {
+                        Map<Object, Object> values = record.getValue();
+                        VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(values, new VoucherOrder(), true);
 
-                    // if get success, place order
-                    handleVoucherOrder(voucherOrder);
+                        handleVoucherOrder(voucherOrder);
 
-                    // ACK confirm  SACK stream,orders g1 id
-                    stringRedisTemplate.opsForStream().acknowledge(queueName, "g1",record.getId());
+                        // ACK confirm
+                        stringRedisTemplate.opsForStream().acknowledge(queueName, "g1", record.getId());
+                    }
 
                 } catch (Exception e) {
-                  log.error("process order fail", e);
-                  handlePendingList();
+                    log.error("Redis stream consumer error, retrying in 5s", e);
+                    try {
+                        Thread.sleep(5000); // Backoff to prevent rapid connection retries
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
-
             }
         }
 

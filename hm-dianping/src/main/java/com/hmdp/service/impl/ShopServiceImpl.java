@@ -12,13 +12,24 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.CacheClient;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RedisData;
+import com.hmdp.utils.SystemConstants;
+import org.springframework.data.geo.Distance;
+import org.springframework.data.geo.GeoResult;
+import org.springframework.data.geo.GeoResults;
+import org.springframework.data.redis.connection.RedisGeoCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.domain.geo.GeoReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
 import javax.annotation.Resource;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -245,5 +256,68 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         stringRedisTemplate.delete(CACHE_SHOP_KEY + shop.getId());
 
         return Result.ok();
+    }
+
+    @Override
+    public Result queryShopByType(Integer typeId, Integer current, Double x, Double y) {
+
+        // check if need to check with geolocation see if got pass in x and y
+        if(x == null || y == null){
+            // no location pass in, direct query db
+
+            Page<Shop> page = query().eq("type_id", typeId)
+                    .page(new Page<>(current, SystemConstants.DEFAULT_PAGE_SIZE));
+
+            return Result.ok(page.getRecords());
+
+        }
+
+        // calculate page params
+        int from = (current -1 )* SystemConstants.DEFAULT_PAGE_SIZE;
+        int end = current * SystemConstants.DEFAULT_PAGE_SIZE;
+
+        // check redis, use geodist to sort, and page
+        String key = SHOP_GEO_KEY + typeId;
+        GeoResults<RedisGeoCommands.GeoLocation<String>> results = stringRedisTemplate.opsForGeo()
+                .search(key, GeoReference.fromCoordinate(x, y), new Distance(5000),
+                        RedisGeoCommands.GeoSearchCommandArgs.newGeoSearchArgs()
+                                .includeDistance()
+                                .limit(end));
+
+        // get shop by id
+        if(results == null){
+            return Result.ok();
+        }
+        List<GeoResult<RedisGeoCommands.GeoLocation<String>>> list = results.getContent();
+        if(list.size() <= from){
+            // already at last page, return empty
+            return Result.ok();
+        }
+
+
+        List<Long> ids = new ArrayList<>(list.size());
+        Map<String, Distance> distanceMap = new HashMap<>(list.size());
+        // get from to end
+        list.stream().skip(from).forEach(
+                result -> {
+                    // get shop id
+                    String shopIdStr = result.getContent().getName();
+                    ids.add(Long.valueOf(shopIdStr));
+
+                    // get distance
+                    Distance distance = result.getDistance();
+                    distanceMap.put(shopIdStr, distance);
+                }
+        );
+
+        // get shop by id
+        String idStr = StrUtil.join(",", ids);
+        List<Shop> shops = query().in("id", ids).last("ORDER BY FIELD ( id," + idStr + ")").list();
+
+        for(Shop shop : shops){
+            shop.setDistance(distanceMap.get(shop.getId().toString()).getValue());
+
+        }
+        return Result.ok(shops);
     }
 }

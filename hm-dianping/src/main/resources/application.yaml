@@ -14,8 +14,9 @@ spring:
     lettuce:
       pool:
         max-active: 10
-        max-idle: 10
-        min-idle: 1
+        max-idle: 8
+        min-idle: 0
+        max-wait: -1ms
         time-between-eviction-runs: 10s
   jackson:
     default-property-inclusion: non_null

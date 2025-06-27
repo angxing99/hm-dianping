@@ -84,4 +84,16 @@ public class UserController {
         session.setAttribute("user", user);
         return Result.ok(user);
     }
+
+    @PostMapping("/sign")
+    public Result sign(){
+        return userService.sign();
+    }
+
+    @PostMapping("/sign/count")
+    public Result signCount(){
+        return userService.signCount();
+    }
+
+
 }

@@ -12,14 +12,19 @@ import com.hmdp.entity.User;
 import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RegexUtils;
+import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpSession;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -103,6 +108,75 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         stringRedisTemplate.expire(LOGIN_USER_KEY + token, LOGIN_USER_TTL, TimeUnit.MINUTES);
 
         return Result.ok(token);
+    }
+
+    @Override
+    public Result sign() {
+        // get current login user
+        Long userId = UserHolder.getUser().getId();
+
+        // get date
+        LocalDateTime now = LocalDateTime.now();
+
+        // form key
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        String key = USER_SIGN_KEY + userId + keySuffix;
+
+        // get current month of the day
+        int dayOfMonth = now.getDayOfMonth();
+
+        // save to redis
+        stringRedisTemplate.opsForValue().setBit(key, dayOfMonth -1 , true);
+
+
+        return Result.ok();
+    }
+
+    @Override
+    public Result signCount() {
+
+        Long userId = UserHolder.getUser().getId();
+
+        // get date
+        LocalDateTime now = LocalDateTime.now();
+
+        // form key
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        String key = USER_SIGN_KEY + userId + keySuffix;
+
+        // get current month of the day
+        int dayOfMonth = now.getDayOfMonth();
+
+        // get total count up to today for current month
+        List<Long> result = stringRedisTemplate.opsForValue().bitField(
+                key,
+                BitFieldSubCommands.create().get(BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth)).valueAt(0)
+        );
+        if(result == null || result.isEmpty()){
+            return Result.ok(0);
+        }
+
+        // get the binary number, retrieve the last bit
+        Long num = result.get(0);
+        if(num == null || num == 0){
+            return Result.ok(0);
+        }
+
+        int count = 0;
+        while(true){
+            // check if the last bit is 0, if 0 mean no sign in
+            if((num & 1) == 0){
+                break;
+            }
+            // if not 0, mean already sign in, count ++
+            else{
+                count++;
+            }
+            // move to right and loop until all bit is count
+            num >>>= 1;
+        }
+
+        return Result.ok(count);
     }
 
 
